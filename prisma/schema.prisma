@@ -1,0 +1,204 @@
+generator client {
+  provider = "prisma-client-js"
+  moduleFormat  = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+
+// --- ENUMS ---
+
+enum UserRole {
+  SUPER_ADMIN // You (the developer)
+  OWNER       // The Landlord
+  MANAGER     // Property Manager/Staff
+  TENANT      // The Tenant (for their portal)
+}
+
+enum LeaseStatus {
+  PENDING_ONBOARDING
+  ACTIVE
+  EXPIRED
+  TERMINATED
+}
+
+enum MatchStatus {
+  PENDING
+  MATCHED
+  MANUAL_INTERVENTION
+  FLAGGED
+}
+
+enum PaymentType {
+  RENT
+  SERVICE_CHARGE
+  DEPOSIT
+  UTILITY
+}
+
+enum ArrangementStatus {
+  ACTIVE
+  FULFILLED
+  BROKEN
+}
+
+// --- AUTHENTICATION & USERS ---
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  password      String    // Hashed password
+  fullName      String
+  role          UserRole  @default(OWNER)
+  isActive      Boolean   @default(true)
+  
+  // Relations to track who created what
+  createdProperties Property[]
+  createdPayments   Payment[]
+  createdLeases     Lease[]
+
+  // Link to Tenant record if the user is a tenant
+  tenantProfile     Tenant?    @relation(fields: [tenantId], references: [id])
+  tenantId          String?    @unique
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastLoginAt     DateTime? 
+
+}
+
+// --- CORE STRUCTURE ---
+
+model Property {
+  id          String   @id @default(uuid())
+  name        String
+  bankAccount String?  
+  houses       House[]
+  
+  // Audit
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdById String
+}
+
+model House {
+  id            String         @id @default(uuid())
+  houseCode     String         
+  monthlyRent   Decimal        @db.Decimal(12, 2)
+  depositAmount   Decimal        @db.Decimal(12, 2)
+  propertyId    String
+  property      Property       @relation(fields: [propertyId], references: [id])
+  lease        Lease[]
+  payments      Payment[]
+  arrangements  PaymentArrangement[]
+  
+  currentBalance Decimal       @default(0) @db.Decimal(12, 2)
+
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@unique([propertyId, houseCode]) 
+
+}
+
+// --- IDENTITY & LEARNING ---
+
+model Tenant {
+  id           String       @id @default(uuid())
+  fullName     String
+  primaryPhone String       @unique 
+  email        String?
+  lease       Lease[]  // ← history lives here
+
+  knownPayers  KnownPayer[] 
+  isActive     Boolean      @default(true)
+  
+  // Link back to User for login
+  user         User?
+
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+}
+
+model KnownPayer {
+  id           String   @id @default(uuid())
+  phone        String   @unique
+  name         String?
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// --- DIGITAL LEASE VAULT ---
+
+model Lease {
+  id              String      @id @default(uuid())
+  houseId          String
+  house            House        @relation(fields: [houseId], references: [id])
+  tenantId  String
+  tenant    Tenant    @relation(fields: [tenantId], references: [id])
+  pdfUrl          String      
+  startDate       DateTime   @default(now())
+  endDate         DateTime?
+  status          LeaseStatus @default(PENDING_ONBOARDING)
+  isCounterSigned Boolean     @default(false)
+  
+
+  // Audit
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  createdBy       User        @relation(fields: [createdById], references: [id])
+  createdById     String
+}
+
+// --- RECONCILIATION ENGINE ---
+
+model BankTransaction {
+  id               String            @id @default(uuid())
+  bankReference    String            @unique 
+  amount           Decimal           @db.Decimal(12, 2)
+  transactionDate  DateTime
+  narrative        String            
+  payerPhone       String?           
+  status           MatchStatus       @default(PENDING)
+  matchLevel       Int?              
+  payments         Payment[]         
+
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+}
+
+model Payment {
+  id                String          @id @default(uuid())
+  houseId            String
+  house              House            @relation(fields: [houseId], references: [id])
+  bankTransactionId String?
+  bankTransaction   BankTransaction? @relation(fields: [bankTransactionId], references: [id])
+  amount            Decimal         @db.Decimal(12, 2)
+  datePaid          DateTime        @default(now())
+  type              PaymentType     @default(RENT)
+  note              String?
+
+  // Audit
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  createdBy         User            @relation(fields: [createdById], references: [id])
+  createdById       String
+}
+
+model PaymentArrangement {
+  id          String    @id @default(uuid())
+  houseId      String
+  house        House      @relation(fields: [houseId], references: [id])
+  promiseDate DateTime
+  reason      String?
+  status      ArrangementStatus @default(ACTIVE)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
