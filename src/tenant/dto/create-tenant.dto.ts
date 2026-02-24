@@ -35,4 +35,26 @@ export class CreateTenantDto {
 
   @IsOptional()
   startDate?: Date;
+
+  @IsOptional()
+  endDate?: Date;
+
+  @IsOptional()
+  notes?: string;
+
+  @IsOptional()
+  @IsString()
+  idNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  idType?: string;
+
+  @IsOptional()
+  @IsString()
+  emergencyContactName?: string;
+
+  @IsOptional()
+  @IsString()
+  pdfUrl?: string;
 }

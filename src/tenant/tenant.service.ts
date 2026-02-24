@@ -9,6 +9,8 @@ import { UpdateTenantDto } from './dto/update-tenant.dto.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { Prisma } from '@prisma/client';
 import * as XLSX from 'xlsx';
+import { FindAllTenantsDto } from './dto/find-tenant.dto.js';
+import { CreateKnownPayerDto } from './dto/create-known-players.dto.js';
 
 @Injectable()
 export class TenantService {
@@ -206,7 +208,7 @@ export class TenantService {
               tenantId: tenant.id,
               houseId,
               startDate: new Date(),
-              createdById: 'Qwerty',
+              createdById: createdById,
               pdfUrl: '',
             },
           });
@@ -217,7 +219,7 @@ export class TenantService {
               tenantId: tenant.id,
               houseId,
               startDate: new Date(),
-              createdById: 'Qwerty',
+              createdById: createdById,
               pdfUrl: '',
             },
           });
@@ -235,19 +237,177 @@ export class TenantService {
     });
   }
 
-  findAll() {
-    return `This action returns all tenant`;
+  async findAll(dto: FindAllTenantsDto) {
+    const { status, propertyId, houseId, search, page = 1, limit = 20 } = dto;
+
+    const skip = (page - 1) * limit;
+
+    // Build the where clause
+    const where: Prisma.TenantWhereInput = {};
+
+    // Active / inactive filter
+    if (status === 'active') where.isActive = true;
+    else if (status === 'inactive') where.isActive = false;
+
+    // Search by name or phone
+    if (search) {
+      where.OR = [
+        { fullName: { contains: search, mode: 'insensitive' } },
+        { primaryPhone: { contains: search } },
+      ];
+    }
+
+    // Filter by property or house — both go through leases
+    if (houseId || propertyId) {
+      where.lease = {
+        some: {
+          endDate: null, // only look at active leases for this filter
+          ...(houseId && { houseId }),
+          ...(propertyId && { house: { propertyId } }),
+        },
+      };
+    }
+
+    const [tenants, total] = await Promise.all([
+      this.prisma.tenant.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          fullName: true,
+          primaryPhone: true,
+          email: true,
+          isActive: true,
+          createdAt: true,
+          lease: {
+            where: { endDate: null },
+            select: {
+              id: true,
+              startDate: true,
+              status: true,
+              house: {
+                select: {
+                  houseCode: true,
+                  monthlyRent: true,
+                  depositAmount: true,
+                  property: {
+                    select: { id: true, name: true },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+      this.prisma.tenant.count({ where }),
+    ]);
+
+    return {
+      data: tenants.map((tenant) => ({
+        ...tenant,
+        currentHouse: tenant.lease ?? null, // null if no active lease
+        lease: undefined, // clean up the raw lease object from response
+      })),
+      meta: {
+        total,
+        page,
+        limit,
+        pageCount: Math.ceil(total / limit),
+        hasNextPage: page < Math.ceil(total / limit),
+        hasPreviousPage: page > 1,
+      },
+    };
   }
 
-  findOne(id: number) {
-    return `This action returns a #${id} tenant`;
+  async findOne(id: string) {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        fullName: true,
+        primaryPhone: true,
+        email: true,
+        isActive: true,
+        createdAt: true,
+      },
+    });
+    if (!tenant) {
+      throw new NotFoundException(`Tenant with ID ${id} not found.`);
+    }
+    return tenant;
   }
 
-  update(id: number, updateTenantDto: UpdateTenantDto) {
-    return `This action updates a #${id} tenant`;
+  async update(id: string, updateTenantDto: UpdateTenantDto) {
+    const updatedTenant = await this.prisma.tenant.update({
+      where: { id },
+      data: updateTenantDto,
+    });
+
+    if (!updatedTenant) {
+      throw new NotFoundException(`Tenant with ID ${id} not found.`);
+    }
+    return updatedTenant;
   }
 
-  remove(id: number) {
-    return `This action removes a #${id} tenant`;
+  async deactivate(id: string) {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+
+    if (!tenant) {
+      throw new NotFoundException('Tenant not found.');
+    }
+
+    return this.prisma.tenant.update({
+      where: { id },
+      data: { isActive: false },
+    });
+  }
+
+  async addKnownPayer(tenantId: string, dto: CreateKnownPayerDto) {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { id: true, primaryPhone: true },
+    });
+
+    if (!tenant) throw new NotFoundException('Tenant not found.');
+
+    // Prevent adding their own number as a known payer
+    if (dto.phone === tenant.primaryPhone) {
+      throw new BadRequestException(
+        'Tenant primary phone is already their default payer.',
+      );
+    }
+
+    return this.prisma.knownPayer.create({
+      data: { phone: dto.phone, name: dto.name ?? null, tenantId },
+    });
+  }
+  async getKnownPayers(tenantId: string) {
+    const knownPayers = await this.prisma.knownPayer.findMany({
+      where: { tenantId },
+      select: { id: true, name: true, phone: true },
+    });
+
+    if (!knownPayers.length) {
+      throw new NotFoundException('No known payers found for this tenant.');
+    }
+
+    return knownPayers;
+  }
+  async removeKnownPayer(id: string) {
+    const knownPayer = await this.prisma.knownPayer.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+
+    if (!knownPayer) {
+      throw new NotFoundException('Known payer not found.');
+    }
+
+    return this.prisma.knownPayer.delete({ where: { id } });
   }
 }

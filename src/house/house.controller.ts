@@ -9,11 +9,13 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  Query,
 } from '@nestjs/common';
 import { HouseService } from './house.service.js';
 import { CreateHouseDto } from './dto/create-house.dto.js';
 import { UpdateHouseDto } from './dto/update-house.dto.js';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { FindAllHousesDto } from './dto/find-house.dto.js';
 
 @Controller('house')
 export class HouseController {
@@ -36,8 +38,8 @@ export class HouseController {
   }
 
   @Get()
-  findAll() {
-    return this.houseService.findAll();
+  findAll(@Query() dto: FindAllHousesDto) {
+    return this.houseService.findAll(dto);
   }
 
   @Get(':id')
@@ -47,11 +49,11 @@ export class HouseController {
 
   @Patch(':id')
   update(@Param('id') id: string, @Body() updateHouseDto: UpdateHouseDto) {
-    return this.houseService.update(+id, updateHouseDto);
+    return this.houseService.update(id, updateHouseDto);
   }
 
   @Delete(':id')
   remove(@Param('id') id: string) {
-    return this.houseService.remove(+id);
+    return this.houseService.deactivate(id);
   }
 }

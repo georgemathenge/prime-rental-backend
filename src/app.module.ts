@@ -20,6 +20,8 @@ import { AdminModule } from './admin/admin.module.js';
 import { House } from './house/entities/house.entity.js';
 import { HouseModule } from './house/house.module.js';
 import { TenantModule } from './tenant/tenant.module.js';
+import { InvoiceModule } from './invoice/invoice.module.js';
+import { PropertyModule } from './property/property.module';
 
 @Module({
   imports: [
@@ -45,6 +47,8 @@ import { TenantModule } from './tenant/tenant.module.js';
     AdminModule,
     HouseModule,
     TenantModule,
+    InvoiceModule,
+    PropertyModule,
   ],
   controllers: [AppController, AuthController],
   providers: [

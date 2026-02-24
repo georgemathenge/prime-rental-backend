@@ -12,12 +12,17 @@ import {
   ParseFilePipe,
   UploadedFile,
   BadRequestException,
+  Query,
+  UseGuards,
 } from '@nestjs/common';
 import { TenantService } from './tenant.service.js';
 import { CreateTenantDto } from './dto/create-tenant.dto.js';
 import { UpdateTenantDto } from './dto/update-tenant.dto.js';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
+import { FindAllTenantsDto } from './dto/find-tenant.dto.js';
+import { CreateKnownPayerDto } from './dto/create-known-players.dto.js';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 
 @Controller('tenant')
 export class TenantController {
@@ -30,6 +35,7 @@ export class TenantController {
 
   @Post(':propertyId/upload')
   @UseInterceptors(FileInterceptor('file'))
+  @UseGuards(JwtAuthGuard)
   async uploadTenants(
     @Param('propertyId') propertyId: string,
     @UploadedFile(
@@ -38,7 +44,7 @@ export class TenantController {
       }),
     )
     file: Express.Multer.File,
-    @CurrentUser() userId: string,
+    @CurrentUser() user: { id: string },
   ) {
     const allowedExtensions = /\.(xlsx|xls|csv)$/i;
     if (!allowedExtensions.test(file.originalname)) {
@@ -50,26 +56,44 @@ export class TenantController {
     return this.tenantService.processExcelUpload(
       file.buffer,
       propertyId,
-      userId,
+      user.id,
     );
   }
   @Get()
-  findAll() {
-    return this.tenantService.findAll();
+  findAll(@Query() dto: FindAllTenantsDto) {
+    return this.tenantService.findAll(dto);
   }
 
   @Get(':id')
   findOne(@Param('id') id: string) {
-    return this.tenantService.findOne(+id);
+    return this.tenantService.findOne(id);
   }
 
   @Patch(':id')
   update(@Param('id') id: string, @Body() updateTenantDto: UpdateTenantDto) {
-    return this.tenantService.update(+id, updateTenantDto);
+    return this.tenantService.update(id, updateTenantDto);
   }
 
   @Delete(':id')
   remove(@Param('id') id: string) {
-    return this.tenantService.remove(+id);
+    return this.tenantService.deactivate(id);
+  }
+
+  @Post('/:tenantId/known-payers')
+  addKnownPayer(
+    @Param('tenantId') tenantId: string,
+    @Body() dto: CreateKnownPayerDto,
+  ) {
+    return this.tenantService.addKnownPayer(tenantId, dto);
+  }
+
+  @Get('/:tenantId/known-payers')
+  getKnownPayers(@Param('tenantId') tenantId: string) {
+    return this.tenantService.getKnownPayers(tenantId);
+  }
+
+  @Delete('known-payers/:id')
+  removeKnownPayer(@Param('id') id: string) {
+    return this.tenantService.removeKnownPayer(id);
   }
 }

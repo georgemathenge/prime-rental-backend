@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "House" ADD COLUMN     "isActive" BOOLEAN NOT NULL DEFAULT true,
+ADD COLUMN     "status" TEXT NOT NULL DEFAULT 'AVAILABLE';

@@ -2,12 +2,14 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  NotFoundException,
 } from '@nestjs/common';
 import { CreateHouseDto } from './dto/create-house.dto.js';
 import { UpdateHouseDto } from './dto/update-house.dto.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import * as XLSX from 'xlsx';
 import { Prisma } from '@prisma/client';
+import { FindAllHousesDto } from './dto/find-house.dto.js';
 
 @Injectable()
 export class HouseService {
@@ -97,19 +99,110 @@ export class HouseService {
     };
   }
 
-  findAll() {
-    return `This action returns all house`;
+  async findAll(dto: FindAllHousesDto) {
+    const { propertyId, search, occupied, page = 1, limit = 20 } = dto;
+    const skip = (page - 1) * limit;
+
+    const where: Prisma.HouseWhereInput = { propertyId };
+
+    if (search) {
+      where.houseCode = { contains: search, mode: 'insensitive' };
+    }
+
+    if (occupied === 'true') {
+      where.lease = { some: { endDate: null } };
+    } else if (occupied === 'false') {
+      where.lease = { none: { endDate: null } };
+    }
+
+    const [houses, total] = await Promise.all([
+      this.prisma.house.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { houseCode: 'asc' },
+        select: {
+          id: true,
+          houseCode: true,
+          monthlyRent: true,
+          depositAmount: true,
+          currentBalance: true,
+          createdAt: true,
+          lease: {
+            where: { endDate: null },
+            select: {
+              id: true,
+              startDate: true,
+              status: true,
+              tenant: {
+                select: {
+                  id: true,
+                  fullName: true,
+                  primaryPhone: true,
+                  isActive: true,
+                },
+              },
+            },
+          },
+        },
+      }),
+      this.prisma.house.count({ where }),
+    ]);
+
+    return {
+      data: houses.map((house) => ({
+        ...house,
+        occupants: house.lease.map((l) => ({
+          leaseId: l.id,
+          since: l.startDate,
+          status: l.status,
+          tenant: l.tenant,
+        })),
+        isOccupied: house.lease.length > 0,
+        leases: undefined,
+      })),
+      meta: {
+        total,
+        page,
+        limit,
+        pageCount: Math.ceil(total / limit),
+        hasNextPage: page < Math.ceil(total / limit),
+        hasPreviousPage: page > 1,
+      },
+    };
   }
 
   findOne(id: number) {
     return `This action returns a #${id} house`;
   }
 
-  update(id: number, updateHouseDto: UpdateHouseDto) {
-    return `This action updates a #${id} house`;
+  async update(id: string, updateHouseDto: UpdateHouseDto) {
+    const house = await this.prisma.house.findUnique({ where: { id } });
+    if (!house) {
+      throw new BadRequestException(`House with ID ${id} not found.`);
+    }
+    const updatedHouse = this.prisma.house.update({
+      where: { id },
+      data: {
+        ...updateHouseDto,
+      },
+    });
+    return updatedHouse;
   }
 
-  remove(id: number) {
-    return `This action removes a #${id} house`;
+  async deactivate(id: string) {
+    const house = await this.prisma.house.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+
+    if (!house) {
+      throw new NotFoundException('House not found.');
+    }
+
+    return this.prisma.house.update({
+      where: { id },
+      data: { isActive: false },
+    });
   }
 }
