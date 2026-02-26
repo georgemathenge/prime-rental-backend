@@ -6,18 +6,21 @@ import {
   Patch,
   Param,
   Delete,
+  UseGuards,
 } from '@nestjs/common';
 import { PropertyService } from './property.service.js';
 import { CreatePropertyDto } from './dto/create-property.dto.js';
 import { UpdatePropertyDto } from './dto/update-property.dto.js';
-import { CurrentUser } from 'src/auth/decorators/current-user.decorator.js';
+import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { FindPropertyDto } from './dto/find-property.dto.js';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 
 @Controller('property')
 export class PropertyController {
   constructor(private readonly propertyService: PropertyService) {}
 
   @Post()
+  @UseGuards(JwtAuthGuard)
   create(
     @Body() createPropertyDto: CreatePropertyDto,
     @CurrentUser() user: { id: string },

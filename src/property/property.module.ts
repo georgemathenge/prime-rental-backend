@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
-import { PropertyService } from './property.service';
-import { PropertyController } from './property.controller';
+import { PropertyService } from './property.service.js';
+import { PropertyController } from './property.controller.js';
 
 @Module({
   controllers: [PropertyController],

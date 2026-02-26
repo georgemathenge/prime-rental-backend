@@ -1,3 +1,4 @@
+import { Transform } from 'class-transformer';
 import {
   IsString,
   IsNotEmpty,
@@ -23,6 +24,9 @@ export class CreateTenantDto {
 
   @IsEmail()
   @IsOptional()
+  @Transform(({ value }: { value: string }) =>
+    value === '' ? undefined : value,
+  )
   email?: string;
 
   @IsUUID()
@@ -33,6 +37,7 @@ export class CreateTenantDto {
   @IsOptional()
   isActive?: boolean;
 
+  @Transform(({ value }) => (value ? new Date(value).toISOString() : undefined))
   @IsOptional()
   startDate?: Date;
 

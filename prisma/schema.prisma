@@ -244,6 +244,7 @@ enum InvoiceType {
   PENALTY
   ARREARS
   DEPOSIT
+  OTHER
 }
 
 enum InvoiceStatus {
@@ -251,4 +252,5 @@ enum InvoiceStatus {
   PARTIAL
   PAID
   OVERDUE
+  CANCELLED
 }

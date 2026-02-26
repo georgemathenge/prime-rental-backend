@@ -44,7 +44,7 @@ export class HouseController {
 
   @Get(':id')
   findOne(@Param('id') id: string) {
-    return this.houseService.findOne(+id);
+    return this.houseService.findOne(id);
   }
 
   @Patch(':id')
@@ -55,5 +55,9 @@ export class HouseController {
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.houseService.deactivate(id);
+  }
+  @Get(':id/active-lease')
+  getActiveLease(@Param('id') id: string) {
+    return this.houseService.getActiveLease(id);
   }
 }

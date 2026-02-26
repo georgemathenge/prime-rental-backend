@@ -3,6 +3,7 @@ import { CreateInvoiceDto, InvoiceType } from './dto/create-invoice.dto.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { Decimal } from '@prisma/client/runtime/index-browser';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto.js';
+import { InvoiceStatus } from '@prisma/client';
 
 @Injectable()
 export class InvoiceService {
@@ -130,6 +131,7 @@ export class InvoiceService {
           },
         },
       },
+      orderBy: { createdAt: 'desc' },
     });
     if (!invoices || invoices.length === 0)
       throw new NotFoundException('No invoices found.');
@@ -150,7 +152,10 @@ export class InvoiceService {
     return `This action updates a #${id} invoice`;
   }
 
-  remove(id: number) {
-    return `This action removes a #${id} invoice`;
+  remove(id: string) {
+    return this.prisma.invoice.update({
+      where: { id },
+      data: { status: InvoiceStatus.CANCELLED },
+    });
   }
 }

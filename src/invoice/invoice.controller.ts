@@ -49,6 +49,6 @@ export class InvoiceController {
 
   @Delete(':id')
   remove(@Param('id') id: string) {
-    return this.invoiceService.remove(+id);
+    return this.invoiceService.remove(id);
   }
 }

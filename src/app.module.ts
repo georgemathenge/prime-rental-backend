@@ -21,7 +21,10 @@ import { House } from './house/entities/house.entity.js';
 import { HouseModule } from './house/house.module.js';
 import { TenantModule } from './tenant/tenant.module.js';
 import { InvoiceModule } from './invoice/invoice.module.js';
-import { PropertyModule } from './property/property.module';
+import { PropertyModule } from './property/property.module.js';
+import { ReportModule } from './report/report.module.js';
+import { PaymentModule } from './payment/payment.module.js';
+import { UsersModule } from './users/users.module.js';
 
 @Module({
   imports: [
@@ -49,6 +52,9 @@ import { PropertyModule } from './property/property.module';
     TenantModule,
     InvoiceModule,
     PropertyModule,
+    ReportModule,
+    PaymentModule,
+    UsersModule,
   ],
   controllers: [AppController, AuthController],
   providers: [

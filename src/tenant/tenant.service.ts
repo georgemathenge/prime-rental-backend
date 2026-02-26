@@ -16,7 +16,7 @@ import { CreateKnownPayerDto } from './dto/create-known-players.dto.js';
 export class TenantService {
   constructor(private prisma: PrismaService) {}
 
-  async create(createTenantDto: CreateTenantDto) {
+  async create(createTenantDto: CreateTenantDto, userId: string) {
     const existingTenant = await this.prisma.tenant.findUnique({
       where: { primaryPhone: createTenantDto.primaryPhone },
     });
@@ -54,7 +54,7 @@ export class TenantService {
           houseId: createTenantDto.houseId,
           startDate: createTenantDto.startDate ?? new Date(),
           pdfUrl: '',
-          createdById: 'system',
+          createdById: userId,
         },
         include: {
           house: {
@@ -65,6 +65,10 @@ export class TenantService {
             },
           },
         },
+      });
+      await tx.house.update({
+        where: { id: createTenantDto.houseId },
+        data: { status: 'OCCUPIED' },
       });
 
       return {
@@ -223,7 +227,11 @@ export class TenantService {
               pdfUrl: '',
             },
           });
-          leasesCreated++;
+
+          await tx.house.update({
+            where: { id: houseId },
+            data: { status: 'OCCUPIED' },
+          });
         }
       }
 
@@ -331,12 +339,84 @@ export class TenantService {
         email: true,
         isActive: true,
         createdAt: true,
+        knownPayers: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            createdAt: true,
+          },
+          orderBy: { createdAt: 'desc' },
+        },
+        lease: {
+          orderBy: { startDate: 'desc' },
+          select: {
+            id: true,
+            startDate: true,
+            endDate: true,
+            status: true,
+            house: {
+              select: {
+                id: true,
+                houseCode: true,
+                monthlyRent: true,
+                depositAmount: true,
+                property: {
+                  select: { id: true, name: true },
+                },
+              },
+            },
+            invoices: {
+              orderBy: { createdAt: 'desc' },
+              take: 10,
+              select: {
+                id: true,
+                invoiceNumber: true,
+                type: true,
+                status: true,
+                totalAmount: true,
+                paidAmount: true,
+                balanceDue: true,
+                dueDate: true,
+                periodStart: true,
+                periodEnd: true,
+              },
+            },
+          },
+        },
       },
     });
-    if (!tenant) {
-      throw new NotFoundException(`Tenant with ID ${id} not found.`);
-    }
-    return tenant;
+
+    if (!tenant) throw new NotFoundException(`Tenant with ID ${id} not found.`);
+
+    const activeLease = tenant.lease.find((l) => l.endDate === null);
+    const leaseHistory = tenant.lease.filter((l) => l.endDate !== null);
+
+    return {
+      id: tenant.id,
+      fullName: tenant.fullName,
+      primaryPhone: tenant.primaryPhone,
+      email: tenant.email,
+      isActive: tenant.isActive,
+      createdAt: tenant.createdAt,
+      knownPayers: tenant.knownPayers,
+      currentHouse: activeLease
+        ? {
+            leaseId: activeLease.id,
+            since: activeLease.startDate,
+            status: activeLease.status,
+            house: activeLease.house,
+            invoices: activeLease.invoices,
+          }
+        : null,
+      leaseHistory: leaseHistory.map((l) => ({
+        leaseId: l.id,
+        from: l.startDate,
+        to: l.endDate,
+        status: l.status,
+        house: l.house,
+      })),
+    };
   }
 
   async update(id: string, updateTenantDto: UpdateTenantDto) {

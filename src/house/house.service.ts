@@ -128,6 +128,11 @@ export class HouseService {
           depositAmount: true,
           currentBalance: true,
           createdAt: true,
+          property: {
+            select: {
+              name: true,
+            },
+          },
           lease: {
             where: { endDate: null },
             select: {
@@ -172,8 +177,97 @@ export class HouseService {
     };
   }
 
-  findOne(id: number) {
-    return `This action returns a #${id} house`;
+  async findOne(id: string) {
+    const house = await this.prisma.house.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        houseCode: true,
+        monthlyRent: true,
+        depositAmount: true,
+        currentBalance: true,
+        status: true,
+        isActive: true,
+        createdAt: true,
+        property: {
+          select: { id: true, name: true },
+        },
+        lease: {
+          orderBy: { startDate: 'desc' },
+          select: {
+            id: true,
+            startDate: true,
+            endDate: true,
+            status: true,
+            tenant: {
+              select: {
+                id: true,
+                fullName: true,
+                primaryPhone: true,
+                email: true,
+                isActive: true,
+              },
+            },
+          },
+        },
+        invoices: {
+          orderBy: { createdAt: 'desc' },
+          take: 10,
+          select: {
+            id: true,
+            invoiceNumber: true,
+            type: true,
+            status: true,
+            totalAmount: true,
+            paidAmount: true,
+            balanceDue: true,
+            dueDate: true,
+            periodStart: true,
+            periodEnd: true,
+          },
+        },
+        payments: {
+          orderBy: { id: 'desc' },
+          take: 10,
+          select: {
+            id: true,
+            amount: true,
+            bankTransaction: {
+              select: {
+                id: true,
+                transactionDate: true,
+                payerPhone: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!house) throw new NotFoundException(`House with ID ${id} not found.`);
+
+    const activeLeases = house.lease.filter((l) => l.endDate === null);
+    const previousLeases = house.lease.filter((l) => l.endDate !== null);
+
+    return {
+      data: {
+        ...house,
+        occupants: activeLeases.map((l) => ({
+          leaseId: l.id,
+          since: l.startDate,
+          status: l.status,
+          tenant: l.tenant,
+        })),
+        leaseHistory: previousLeases.map((l) => ({
+          leaseId: l.id,
+          from: l.startDate,
+          to: l.endDate,
+          status: l.status,
+          tenant: l.tenant,
+        })),
+        lease: undefined,
+      },
+    };
   }
 
   async update(id: string, updateHouseDto: UpdateHouseDto) {
@@ -204,5 +298,17 @@ export class HouseService {
       where: { id },
       data: { isActive: false },
     });
+  }
+  async getActiveLease(houseId: string) {
+    const lease = await this.prisma.lease.findFirst({
+      where: { houseId, endDate: null },
+      select: { id: true, tenantId: true, startDate: true },
+    });
+
+    if (!lease)
+      throw new NotFoundException('No active lease found for this house.');
+    return {
+      data: lease,
+    };
   }
 }

@@ -29,8 +29,12 @@ export class TenantController {
   constructor(private readonly tenantService: TenantService) {}
 
   @Post()
-  create(@Body() createTenantDto: CreateTenantDto) {
-    return this.tenantService.create(createTenantDto);
+  @UseGuards(JwtAuthGuard)
+  create(
+    @Body() createTenantDto: CreateTenantDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    return this.tenantService.create(createTenantDto, user.id);
   }
 
   @Post(':propertyId/upload')
