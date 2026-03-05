@@ -29,7 +29,9 @@ export class ReportService {
 
       // Occupied houses
       this.prisma.house.count({
-        where: { status: 'OCCUPIED' },
+        where: {
+          lease: { some: { endDate: null } },
+        },
       }),
 
       // Active tenants

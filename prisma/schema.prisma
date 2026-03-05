@@ -28,6 +28,7 @@ enum MatchStatus {
   MATCHED
   MANUAL_INTERVENTION
   FLAGGED
+  OVER_PAYMENT
 }
 
 enum PaymentType {
@@ -72,10 +73,11 @@ model User {
 // --- CORE STRUCTURE ---
 
 model Property {
-  id          String  @id @default(uuid())
-  name        String @unique
-  bankAccount String?
-  houses      House[]
+  id               String            @id @default(uuid())
+  name             String            @unique
+  bankAccount      String?
+  houses           House[]
+  bankTransactions BankTransaction[]
 
   // Audit
   createdAt   DateTime @default(now())
@@ -121,19 +123,22 @@ model Tenant {
   // Link back to User for login
   user User?
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  bankTransactions BankTransaction[]
 }
 
 model KnownPayer {
   id       String  @id @default(uuid())
-  phone    String  @unique
+  phone    String  
   name     String?
   tenantId String
   tenant   Tenant  @relation(fields: [tenantId], references: [id])
+  propertyId String
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+   @@unique([phone, tenantId]) 
 }
 
 // --- DIGITAL LEASE VAULT ---
@@ -169,10 +174,14 @@ model BankTransaction {
   payerPhone      String?
   status          MatchStatus @default(PENDING)
   matchLevel      Int?
+  matchNote       String? // ← reason for manual intervention
+  tenantId        String? // ← store matched tenant for context
+  tenant          Tenant?     @relation(fields: [tenantId], references: [id])
   payments        Payment[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  propertyId      String
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  property        Property    @relation(fields: [propertyId], references: [id])
 }
 
 model Payment {
@@ -218,18 +227,18 @@ model Invoice {
   type   InvoiceType   @default(RENT) // RENT, PENALTY, ARREARS
   status InvoiceStatus @default(UNPAID) // UNPAID, PAID, PARTIAL, OVERDUE
 
-  amount        Decimal @db.Decimal(12, 2) // base amount
-  penaltyAmount Decimal @default(0) @db.Decimal(12, 2) // penalties added on top
-  totalAmount   Decimal @db.Decimal(12, 2) // amount + penalty
-  paidAmount    Decimal @default(0) @db.Decimal(12, 2) // what has been paid so far
-  balanceDue    Decimal @db.Decimal(12, 2) // totalAmount - paidAmount
-  carryOver Decimal @default(0) @db.Decimal(12, 2) // arrears from previous period creditAmount Decimal @default(0) @db.Decimal(12, 2) // excess from previous period  excessAmount Decimal @default(0) @db.Decimal(12, 2)
+  amount        Decimal  @db.Decimal(12, 2) // base amount
+  penaltyAmount Decimal  @default(0) @db.Decimal(12, 2) // penalties added on top
+  totalAmount   Decimal  @db.Decimal(12, 2) // amount + penalty
+  paidAmount    Decimal  @default(0) @db.Decimal(12, 2) // what has been paid so far
+  balanceDue    Decimal  @db.Decimal(12, 2) // totalAmount - paidAmount
+  carryOver     Decimal  @default(0) @db.Decimal(12, 2) // arrears from previous period creditAmount Decimal @default(0) @db.Decimal(12, 2) // excess from previous period  excessAmount Decimal @default(0) @db.Decimal(12, 2)
   excessAmount  Decimal  @default(0) @db.Decimal(12, 2) // if paidAmount > totalAmount
   creditAmount  Decimal  @default(0) @db.Decimal(12, 2) // for excess payments that can be applied to future invoices
-  dueDate     DateTime
-  periodStart DateTime // e.g 1st March 2026
-  periodEnd   DateTime // e.g 31st March 2026
-  notes       String?
+  dueDate       DateTime
+  periodStart   DateTime // e.g 1st March 2026
+  periodEnd     DateTime // e.g 31st March 2026
+  notes         String?
 
   payment Payment[]
 

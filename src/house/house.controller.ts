@@ -22,8 +22,11 @@ export class HouseController {
   constructor(private readonly houseService: HouseService) {}
 
   @Post()
-  create(@Body() createHouseDto: CreateHouseDto) {
-    return this.houseService.create(createHouseDto);
+  create(
+    @Body() createHouseDto: CreateHouseDto,
+    @Query('propertyId') propertyId: string,
+  ) {
+    return this.houseService.create(createHouseDto, propertyId);
   }
   @Post('upload/:propertyId')
   @UseInterceptors(FileInterceptor('file'))
@@ -59,5 +62,9 @@ export class HouseController {
   @Get(':id/active-lease')
   getActiveLease(@Param('id') id: string) {
     return this.houseService.getActiveLease(id);
+  }
+  @Get(':id/active-invoice')
+  getActiveInvoice(@Param('id') id: string) {
+    return this.houseService.getActiveInvoice(id);
   }
 }

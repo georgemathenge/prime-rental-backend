@@ -3,7 +3,8 @@ import { CreateInvoiceDto, InvoiceType } from './dto/create-invoice.dto.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { Decimal } from '@prisma/client/runtime/index-browser';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto.js';
-import { InvoiceStatus } from '@prisma/client';
+import { InvoiceStatus, MatchStatus, Prisma } from '@prisma/client';
+import { FindAllInvoicesDto } from './dto/find-all-invoices.dto.js';
 
 @Injectable()
 export class InvoiceService {
@@ -21,29 +22,108 @@ export class InvoiceService {
     });
     if (!lease) throw new NotFoundException('Lease not found.');
 
-    const amount = new Decimal(createInvoiceDto.amount);
-    const penaltyAmount = new Decimal(createInvoiceDto.penaltyAmount ?? 0);
-    const totalAmount = amount.plus(penaltyAmount);
+    // Check for previous PAID invoice with excess credit
+    const lastInvoice = await this.prisma.invoice.findFirst({
+      where: {
+        houseId: createInvoiceDto.houseId,
+        status: InvoiceStatus.PAID,
+      },
+      orderBy: { periodStart: 'desc' },
+      select: { id: true, excessAmount: true },
+    });
 
-    return this.prisma.invoice.create({
+    // Check for unreconciled OVERPAYMENT transactions for this house
+    const overpaymentTxs = await this.prisma.bankTransaction.findMany({
+      where: {
+        status: MatchStatus.OVER_PAYMENT,
+        payments: { some: { houseId: createInvoiceDto.houseId } },
+      },
+      select: { id: true, amount: true },
+    });
+
+    const overpaymentTotal = overpaymentTxs.reduce(
+      (sum, tx) => sum.plus(new Decimal(tx.amount)),
+      new Decimal(0),
+    );
+
+    console.log(createInvoiceDto.houseId);
+
+    const baseAmount = new Decimal(createInvoiceDto.amount);
+    const penaltyAmount = new Decimal(createInvoiceDto.penaltyAmount ?? 0);
+    const grossAmount = baseAmount.plus(penaltyAmount);
+
+    // Credit from previous invoice excess
+    const invoiceCredit =
+      lastInvoice?.excessAmount &&
+      new Decimal(lastInvoice.excessAmount).greaterThan(0)
+        ? new Decimal(lastInvoice.excessAmount)
+        : new Decimal(0);
+
+    // Total credit = invoice excess + unreconciled overpayments
+    const creditAmount = invoiceCredit.plus(overpaymentTotal);
+
+    const totalAmount = grossAmount.minus(creditAmount);
+    const remainingCredit = creditAmount.greaterThan(grossAmount)
+      ? creditAmount.minus(grossAmount)
+      : new Decimal(0);
+    const balanceDue = totalAmount.lessThan(0) ? new Decimal(0) : totalAmount;
+    const paidAmount = balanceDue.equals(0) ? grossAmount : new Decimal(0);
+    const status = balanceDue.equals(0)
+      ? InvoiceStatus.PAID
+      : InvoiceStatus.UNPAID;
+
+    // Clear excess on previous invoice
+    if (invoiceCredit.greaterThan(0) && lastInvoice) {
+      await this.prisma.invoice.update({
+        where: { id: lastInvoice.id },
+        data: { excessAmount: new Decimal(0) },
+      });
+    }
+
+    // Create invoice
+    const invoice = await this.prisma.invoice.create({
       data: {
+        invoiceNumber: await this.generateInvoiceNumber(),
         houseId: createInvoiceDto.houseId,
         leaseId: createInvoiceDto.leaseId,
         type: createInvoiceDto.type ?? InvoiceType.RENT,
-        amount,
+        status,
+        amount: baseAmount,
         penaltyAmount,
-        totalAmount,
-        balanceDue: totalAmount,
         carryOver: new Decimal(0),
-        creditAmount: new Decimal(0),
+        creditAmount,
+        excessAmount: remainingCredit,
+        totalAmount: balanceDue.equals(0) ? grossAmount : totalAmount,
+        paidAmount,
+        balanceDue,
         dueDate: new Date(createInvoiceDto.dueDate),
         periodStart: new Date(createInvoiceDto.periodStart),
         periodEnd: new Date(createInvoiceDto.periodEnd),
         notes: createInvoiceDto.notes ?? null,
-        invoiceNumber: await this.generateInvoiceNumber(),
         createdById,
       },
     });
+
+    // Link overpayment transactions to this invoice and mark as MATCHED
+    for (const tx of overpaymentTxs) {
+      await this.prisma.payment.updateMany({
+        where: {
+          bankTransactionId: tx.id,
+          houseId: createInvoiceDto.houseId,
+        },
+        data: { invoiceId: invoice.id },
+      });
+
+      await this.prisma.bankTransaction.update({
+        where: { id: tx.id },
+        data: {
+          status: MatchStatus.MATCHED,
+          matchNote: `Matched to invoice ${invoice.invoiceNumber} on creation`,
+        },
+      });
+    }
+
+    return invoice;
   }
 
   async autoGenerateInvoices(dto: CreateInvoiceDto, createdById: string) {
@@ -59,88 +139,199 @@ export class InvoiceService {
     });
     if (!lease) throw new NotFoundException('Lease not found.');
 
-    // Check for excess/arrears from last invoice
+    // Check for previous PAID invoice with excess credit
     const lastInvoice = await this.prisma.invoice.findFirst({
-      where: { houseId: dto.houseId },
+      where: {
+        houseId: dto.houseId,
+        status: InvoiceStatus.PAID,
+      },
       orderBy: { periodStart: 'desc' },
+      select: { id: true, excessAmount: true },
     });
 
-    const carryOver = lastInvoice?.balanceDue ?? new Decimal(0);
-    const creditAmount = lastInvoice?.excessAmount ?? new Decimal(0);
-    const penaltyAmount = new Decimal(dto.penaltyAmount ?? 0);
-    const amount = new Decimal(dto.amount);
-    const totalAmount = amount
-      .plus(penaltyAmount)
-      .plus(carryOver)
-      .minus(creditAmount);
+    // Check for unreconciled OVERPAYMENT transactions for this house
+    const overpaymentTxs = await this.prisma.bankTransaction.findMany({
+      where: {
+        status: MatchStatus.OVER_PAYMENT,
+        payments: { some: { houseId: dto.houseId } },
+      },
+      select: { id: true, amount: true },
+    });
 
-    return this.prisma.invoice.create({
+    const overpaymentTotal = overpaymentTxs.reduce(
+      (sum, tx) => sum.plus(new Decimal(tx.amount)),
+      new Decimal(0),
+    );
+
+    const baseAmount = new Decimal(dto.amount);
+    const penaltyAmount = new Decimal(dto.penaltyAmount ?? 0);
+    const grossAmount = baseAmount.plus(penaltyAmount);
+
+    // Credit from previous invoice excess
+    const invoiceCredit =
+      lastInvoice?.excessAmount &&
+      new Decimal(lastInvoice.excessAmount).greaterThan(0)
+        ? new Decimal(lastInvoice.excessAmount)
+        : new Decimal(0);
+
+    // Total credit = invoice excess + unreconciled overpayments
+    const creditAmount = invoiceCredit.plus(overpaymentTotal);
+
+    const totalAmount = grossAmount.minus(creditAmount);
+    const remainingCredit = creditAmount.greaterThan(grossAmount)
+      ? creditAmount.minus(grossAmount)
+      : new Decimal(0);
+    const balanceDue = totalAmount.lessThan(0) ? new Decimal(0) : totalAmount;
+    const paidAmount = balanceDue.equals(0) ? grossAmount : new Decimal(0);
+    const status = balanceDue.equals(0)
+      ? InvoiceStatus.PAID
+      : InvoiceStatus.UNPAID;
+
+    // Clear excess on previous invoice
+    if (invoiceCredit.greaterThan(0) && lastInvoice) {
+      await this.prisma.invoice.update({
+        where: { id: lastInvoice.id },
+        data: { excessAmount: new Decimal(0) },
+      });
+    }
+
+    // Create invoice
+    const invoice = await this.prisma.invoice.create({
       data: {
+        invoiceNumber: await this.generateInvoiceNumber(),
         houseId: dto.houseId,
         leaseId: dto.leaseId,
-        type: dto.type,
-        amount,
+        type: dto.type ?? InvoiceType.RENT,
+        status,
+        amount: baseAmount,
         penaltyAmount,
-        carryOver,
+        carryOver: new Decimal(0),
         creditAmount,
-        totalAmount,
-        balanceDue: totalAmount,
+        excessAmount: remainingCredit,
+        totalAmount: balanceDue.equals(0) ? grossAmount : totalAmount,
+        paidAmount,
+        balanceDue,
         dueDate: new Date(dto.dueDate),
         periodStart: new Date(dto.periodStart),
         periodEnd: new Date(dto.periodEnd),
-        invoiceNumber: await this.generateInvoiceNumber(),
+        notes: dto.notes ?? null,
         createdById,
       },
     });
+
+    // Link overpayment transactions to this invoice and mark as MATCHED
+    for (const tx of overpaymentTxs) {
+      await this.prisma.payment.updateMany({
+        where: {
+          bankTransactionId: tx.id,
+          houseId: dto.houseId,
+        },
+        data: { invoiceId: invoice.id },
+      });
+
+      await this.prisma.bankTransaction.update({
+        where: { id: tx.id },
+        data: {
+          status: MatchStatus.MATCHED,
+          matchNote: `Matched to invoice ${invoice.invoiceNumber} on creation`,
+        },
+      });
+    }
+
+    return invoice;
   }
 
   private async generateInvoiceNumber(): Promise<string> {
-    const count = await this.prisma.invoice.count();
     const year = new Date().getFullYear();
-    return `INV-${year}-${String(count + 1).padStart(4, '0')}`; // INV-2026-0001
+    const latest = await this.prisma.invoice.findFirst({
+      orderBy: { createdAt: 'desc' },
+      select: { invoiceNumber: true },
+    });
+
+    if (!latest) return `INV-${year}-0001`;
+
+    const lastNumber = parseInt(latest.invoiceNumber.split('-')[2], 10);
+    return `INV-${year}-${String(lastNumber + 1).padStart(4, '0')}`;
   }
 
-  async findAll() {
-    const invoices = await this.prisma.invoice.findMany({
-      select: {
-        id: true,
-        invoiceNumber: true,
-        type: true,
-        status: true,
-        amount: true,
-        penaltyAmount: true,
-        totalAmount: true,
-        paidAmount: true,
-        balanceDue: true,
-        dueDate: true,
-        periodStart: true,
-        periodEnd: true,
-        notes: true,
-        createdAt: true,
-        house: {
-          select: {
-            houseCode: true,
-            property: { select: { name: true } },
+  async findAll(dto: FindAllInvoicesDto) {
+    const { propertyId, search, status, type, page = 1, limit = 20 } = dto;
+    const skip = (page - 1) * limit;
+
+    const where: Prisma.InvoiceWhereInput = {};
+
+    // Scope to property via house relation
+    if (propertyId) {
+      where.house = { propertyId };
+    }
+
+    if (status) where.status = status;
+    if (type) where.type = type;
+
+    if (search) {
+      where.OR = [
+        { invoiceNumber: { contains: search, mode: 'insensitive' } },
+        { house: { houseCode: { contains: search, mode: 'insensitive' } } },
+        {
+          lease: {
+            tenant: { fullName: { contains: search, mode: 'insensitive' } },
           },
         },
-        lease: {
-          select: {
-            tenant: {
-              select: { fullName: true, primaryPhone: true },
+      ];
+    }
+
+    const [invoices, total] = await Promise.all([
+      this.prisma.invoice.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          invoiceNumber: true,
+          type: true,
+          status: true,
+          amount: true,
+          penaltyAmount: true,
+          carryOver: true,
+          creditAmount: true,
+          excessAmount: true,
+          totalAmount: true,
+          paidAmount: true,
+          balanceDue: true,
+          dueDate: true,
+          periodStart: true,
+          periodEnd: true,
+          notes: true,
+          createdAt: true,
+          house: {
+            select: {
+              houseCode: true,
+              property: { select: { name: true } },
+            },
+          },
+          lease: {
+            select: {
+              tenant: {
+                select: { fullName: true, primaryPhone: true },
+              },
             },
           },
         },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (!invoices || invoices.length === 0)
-      throw new NotFoundException('No invoices found.');
+      }),
+      this.prisma.invoice.count({ where }),
+    ]);
+
     return {
-      data: invoices.map((inv) => ({
-        ...inv,
-        // house: `${inv.house.property.name} - ${inv.house.houseCode}`,
-        // tenant: inv.lease.tenant.fullName,
-      })),
+      data: invoices,
+      meta: {
+        total,
+        page,
+        limit,
+        pageCount: Math.ceil(total / limit),
+        hasNextPage: page < Math.ceil(total / limit),
+        hasPreviousPage: page > 1,
+      },
     };
   }
 

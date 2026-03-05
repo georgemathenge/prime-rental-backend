@@ -7,12 +7,14 @@ import {
   Param,
   Delete,
   UseGuards,
+  Query,
 } from '@nestjs/common';
 import { InvoiceService } from './invoice.service.js';
 import { CreateInvoiceDto } from './dto/create-invoice.dto.js';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
+import { FindAllInvoicesDto } from './dto/find-all-invoices.dto.js';
 
 @Controller('invoice')
 export class InvoiceController {
@@ -33,8 +35,8 @@ export class InvoiceController {
   }
 
   @Get()
-  findAll() {
-    return this.invoiceService.findAll();
+  findAll(@Query() dto: FindAllInvoicesDto) {
+    return this.invoiceService.findAll(dto);
   }
 
   @Get(':id')

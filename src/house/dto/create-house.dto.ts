@@ -20,10 +20,6 @@ export class CreateHouseDto {
   @IsPositive()
   depositAmount!: number;
 
-  @IsUUID()
-  @IsNotEmpty()
-  propertyId!: string;
-
   @IsNumber({ maxDecimalPlaces: 2 })
   @IsOptional()
   currentBalance?: number;

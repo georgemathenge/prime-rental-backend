@@ -16,12 +16,12 @@ export class HouseService {
   // 1. Single Create with Duplicate Check
 
   constructor(private prisma: PrismaService) {}
-  async create(createHouseDto: CreateHouseDto) {
+  async create(createHouseDto: CreateHouseDto, propertyId: string) {
     // Check if houseCode already exists in this specific property
     const existingHouse = await this.prisma.house.findFirst({
       where: {
         houseCode: createHouseDto.houseCode,
-        propertyId: createHouseDto.propertyId,
+        propertyId: propertyId,
       },
     });
 
@@ -34,7 +34,7 @@ export class HouseService {
     return this.prisma.house.create({
       data: {
         houseCode: createHouseDto.houseCode,
-        propertyId: createHouseDto.propertyId,
+        propertyId: propertyId,
         monthlyRent: new Prisma.Decimal(createHouseDto.monthlyRent),
         depositAmount: new Prisma.Decimal(createHouseDto.depositAmount),
         currentBalance: new Prisma.Decimal(createHouseDto.currentBalance || 0),
@@ -43,29 +43,6 @@ export class HouseService {
   }
 
   // 2. Bulk Create Method
-  createBulk(createHouseDtos: CreateHouseDto[]) {
-    if (!createHouseDtos || createHouseDtos.length === 0) {
-      throw new BadRequestException(
-        'No house data provided for bulk creation.',
-      );
-    }
-
-    // Convert numbers to Prisma.Decimal for each house in the array
-    const data = createHouseDtos.map((dto) => ({
-      houseCode: dto.houseCode,
-      propertyId: dto.propertyId,
-      monthlyRent: new Prisma.Decimal(dto.monthlyRent),
-      depositAmount: new Prisma.Decimal(dto.depositAmount),
-      currentBalance: new Prisma.Decimal(dto.currentBalance || 0),
-    }));
-
-    // Note: createMany returns { count: number }
-    // skipDuplicates: true ensures it won't crash if one house already exists
-    return this.prisma.house.createMany({
-      data,
-      skipDuplicates: true,
-    });
-  }
 
   async processExcelUpload(buffer: Buffer, propertyId: string) {
     // 1. Read the Excel/CSV from buffer
@@ -310,5 +287,28 @@ export class HouseService {
     return {
       data: lease,
     };
+  }
+  async getActiveInvoice(houseId: string) {
+    const invoice = await this.prisma.invoice.findFirst({
+      where: {
+        houseId,
+        status: { in: ['UNPAID', 'PARTIAL', 'OVERDUE'] },
+      },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        invoiceNumber: true,
+        type: true,
+        totalAmount: true,
+        balanceDue: true,
+        status: true,
+        periodStart: true,
+        periodEnd: true,
+      },
+    });
+
+    if (!invoice)
+      throw new NotFoundException('No unpaid invoice found for this house.');
+    return invoice;
   }
 }

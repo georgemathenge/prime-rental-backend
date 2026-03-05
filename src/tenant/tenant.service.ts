@@ -447,7 +447,11 @@ export class TenantService {
     });
   }
 
-  async addKnownPayer(tenantId: string, dto: CreateKnownPayerDto) {
+  async addKnownPayer(
+    tenantId: string,
+    dto: CreateKnownPayerDto,
+    propertyId: string,
+  ) {
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
       select: { id: true, primaryPhone: true },
@@ -463,7 +467,12 @@ export class TenantService {
     }
 
     return this.prisma.knownPayer.create({
-      data: { phone: dto.phone, name: dto.name ?? null, tenantId },
+      data: {
+        phone: dto.phone,
+        name: dto.name ?? null,
+        tenantId,
+        propertyId: propertyId,
+      },
     });
   }
   async getKnownPayers(tenantId: string) {

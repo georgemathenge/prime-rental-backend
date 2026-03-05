@@ -23,6 +23,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { FindAllTenantsDto } from './dto/find-tenant.dto.js';
 import { CreateKnownPayerDto } from './dto/create-known-players.dto.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
+import { property } from 'lodash';
 
 @Controller('tenant')
 export class TenantController {
@@ -87,8 +88,9 @@ export class TenantController {
   addKnownPayer(
     @Param('tenantId') tenantId: string,
     @Body() dto: CreateKnownPayerDto,
+    @Query('propertyId') propertyId: string,
   ) {
-    return this.tenantService.addKnownPayer(tenantId, dto);
+    return this.tenantService.addKnownPayer(tenantId, dto, propertyId);
   }
 
   @Get('/:tenantId/known-payers')
