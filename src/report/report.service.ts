@@ -6,7 +6,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 export class ReportService {
   constructor(private prisma: PrismaService) {}
 
-  async getDashboard() {
+  async getDashboard(propertyId: string) {
     const now = new Date();
     const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 11, 1);
 
@@ -25,18 +25,32 @@ export class ReportService {
       this.prisma.property.count(),
 
       // Total houses
-      this.prisma.house.count(),
+      this.prisma.house.count({
+        where: {
+          propertyId: propertyId,
+        },
+      }),
 
       // Occupied houses
       this.prisma.house.count({
         where: {
           lease: { some: { endDate: null } },
+          propertyId: propertyId,
         },
       }),
 
       // Active tenants
       this.prisma.tenant.count({
-        where: { isActive: true },
+        where: {
+          isActive: true,
+          lease: {
+            some: {
+              house: {
+                propertyId: propertyId,
+              },
+            },
+          },
+        },
       }),
 
       // Invoice status breakdown + outstanding balance
@@ -44,12 +58,20 @@ export class ReportService {
         by: ['status'],
         _count: { id: true },
         _sum: { balanceDue: true, totalAmount: true },
+        where: {
+          house: {
+            propertyId: propertyId,
+          },
+        },
       }),
 
       // Monthly expected rent (invoices) — last 12 months
       this.prisma.invoice.findMany({
         where: {
           createdAt: { gte: twelveMonthsAgo },
+          house: {
+            propertyId: propertyId,
+          },
         },
         select: {
           createdAt: true,
@@ -62,6 +84,9 @@ export class ReportService {
       this.prisma.payment.findMany({
         where: {
           datePaid: { gte: twelveMonthsAgo },
+          house: {
+            propertyId: propertyId,
+          },
         },
         select: {
           datePaid: true,
@@ -73,6 +98,11 @@ export class ReportService {
       this.prisma.invoice.findMany({
         take: 5,
         orderBy: { createdAt: 'desc' },
+        where: {
+          house: {
+            propertyId: propertyId,
+          },
+        },
         select: {
           id: true,
           invoiceNumber: true,
@@ -100,6 +130,11 @@ export class ReportService {
       this.prisma.payment.findMany({
         take: 5,
         orderBy: { datePaid: 'desc' },
+        where: {
+          house: {
+            propertyId: propertyId,
+          },
+        },
         select: {
           id: true,
           amount: true,

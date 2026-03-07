@@ -44,6 +44,12 @@ enum ArrangementStatus {
   BROKEN
 }
 
+enum HouseStatus {
+  AVAILABLE
+  OCCUPIED
+  MAINTENANCE
+}
+
 // --- AUTHENTICATION & USERS ---
 
 model User {
@@ -96,7 +102,7 @@ model House {
   lease          Lease[]
   payments       Payment[]
   arrangements   PaymentArrangement[]
-  status         String               @default("AVAILABLE") // AVAILABLE, OCCUPIED, MAINTENANCE
+  status HouseStatus @default(AVAILABLE)
   isActive       Boolean              @default(true)
   currentBalance Decimal              @default(0) @db.Decimal(12, 2)
 

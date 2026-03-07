@@ -204,16 +204,34 @@ export class HouseService {
           },
         },
         payments: {
-          orderBy: { id: 'desc' },
+          orderBy: { datePaid: 'desc' },
           take: 10,
           select: {
             id: true,
             amount: true,
+            datePaid: true,
+            type: true,
+            note: true,
+            invoice: {
+              select: {
+                invoiceNumber: true,
+                status: true,
+                periodStart: true,
+                periodEnd: true,
+                totalAmount: true,
+                paidAmount: true,
+                balanceDue: true,
+              },
+            },
             bankTransaction: {
               select: {
                 id: true,
                 transactionDate: true,
                 payerPhone: true,
+                narrative: true,
+                status: true,
+                matchLevel: true,
+                bankReference: true,
               },
             },
           },
@@ -242,23 +260,75 @@ export class HouseService {
           status: l.status,
           tenant: l.tenant,
         })),
+        financialSummary: {
+          totalOutstanding: house.invoices
+            .filter((inv) =>
+              ['UNPAID', 'PARTIAL', 'OVERDUE'].includes(inv.status),
+            )
+            .reduce((sum, inv) => sum + Number(inv.balanceDue), 0),
+          totalPaid: house.invoices.reduce(
+            (sum, inv) => sum + Number(inv.paidAmount),
+            0,
+          ),
+          unpaidCount: house.invoices.filter((inv) => inv.status === 'UNPAID')
+            .length,
+          partialCount: house.invoices.filter((inv) => inv.status === 'PARTIAL')
+            .length,
+          overdueCount: house.invoices.filter((inv) => inv.status === 'OVERDUE')
+            .length,
+          hasArrears: house.invoices.some((inv) =>
+            ['UNPAID', 'PARTIAL', 'OVERDUE'].includes(inv.status),
+          ),
+        },
         lease: undefined,
       },
     };
   }
 
-  async update(id: string, updateHouseDto: UpdateHouseDto) {
-    const house = await this.prisma.house.findUnique({ where: { id } });
-    if (!house) {
-      throw new BadRequestException(`House with ID ${id} not found.`);
+  async update(id: string, dto: UpdateHouseDto) {
+    const house = await this.prisma.house.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!house) throw new NotFoundException('House not found.');
+
+    // If houseCode is being changed check it doesn't conflict
+    if (dto.houseCode) {
+      const existing = await this.prisma.house.findFirst({
+        where: {
+          houseCode: dto.houseCode,
+          property: { houses: { some: { id } } },
+          NOT: { id }, // exclude current house
+        },
+      });
+      if (existing) {
+        throw new ConflictException(
+          `House code "${dto.houseCode}" already exists in this property.`,
+        );
+      }
     }
-    const updatedHouse = this.prisma.house.update({
+
+    return this.prisma.house.update({
       where: { id },
       data: {
-        ...updateHouseDto,
+        ...(dto.houseCode && { houseCode: dto.houseCode }),
+        ...(dto.monthlyRent && {
+          monthlyRent: new Prisma.Decimal(dto.monthlyRent),
+        }),
+        ...(dto.depositAmount && {
+          depositAmount: new Prisma.Decimal(dto.depositAmount),
+        }),
+        ...(dto.status && { status: dto.status }),
+      },
+      select: {
+        id: true,
+        houseCode: true,
+        monthlyRent: true,
+        depositAmount: true,
+        status: true,
+        property: { select: { name: true } },
       },
     });
-    return updatedHouse;
   }
 
   async deactivate(id: string) {

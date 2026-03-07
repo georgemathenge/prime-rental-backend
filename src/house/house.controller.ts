@@ -10,6 +10,7 @@ import {
   UploadedFile,
   BadRequestException,
   Query,
+  Put,
 } from '@nestjs/common';
 import { HouseService } from './house.service.js';
 import { CreateHouseDto } from './dto/create-house.dto.js';
@@ -50,7 +51,7 @@ export class HouseController {
     return this.houseService.findOne(id);
   }
 
-  @Patch(':id')
+  @Put(':id')
   update(@Param('id') id: string, @Body() updateHouseDto: UpdateHouseDto) {
     return this.houseService.update(id, updateHouseDto);
   }
