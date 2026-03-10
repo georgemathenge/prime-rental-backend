@@ -23,6 +23,7 @@ export enum BankType {
   EQUITY = 'equity',
   KCB = 'kcb',
   COOPERATIVE = 'cooperative',
+  PRIMEBANK = 'prime_bank',
 } ////////////////////
 
 @Injectable()

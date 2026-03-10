@@ -1,6 +1,8 @@
 // reports.service.ts
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { Prisma } from '@prisma/client';
+import { FindAllInvoicesDto } from 'src/invoice/dto/find-all-invoices.dto.js';
 
 @Injectable()
 export class ReportService {
@@ -211,6 +213,108 @@ export class ReportService {
       invoiceBreakdown: statusBreakdown,
       recentInvoices,
       recentPayments,
+    };
+  }
+
+  async getOverDueInvoices(dto: FindAllInvoicesDto) {
+    const {
+      propertyId,
+      search,
+      status,
+      type,
+      page = 1,
+      limit = 20,
+      overdue,
+    } = dto;
+    const skip = (page - 1) * limit;
+    const currentDate = new Date();
+    const showOverdue = dto.overdue !== undefined ? dto.overdue : true;
+
+    const where: Prisma.InvoiceWhereInput = {};
+
+    // Scope to property via house relation
+
+    if (propertyId) {
+      where.house = { propertyId };
+    }
+
+    if (type) where.type = type;
+
+    // Handle overdue filter
+    // Cast to string for comparison
+    if (showOverdue) {
+      where.dueDate = {
+        lt: currentDate, // Less than current date (past due)
+      };
+      where.balanceDue = {
+        gt: 0, // Only unpaid invoices
+      };
+    }
+
+    if (search) {
+      where.OR = [
+        { invoiceNumber: { contains: search, mode: 'insensitive' } },
+        { house: { houseCode: { contains: search, mode: 'insensitive' } } },
+        {
+          lease: {
+            tenant: { fullName: { contains: search, mode: 'insensitive' } },
+          },
+        },
+      ];
+    }
+
+    const [invoices, total] = await Promise.all([
+      this.prisma.invoice.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          invoiceNumber: true,
+          type: true,
+          status: true,
+          amount: true,
+          penaltyAmount: true,
+          carryOver: true,
+          creditAmount: true,
+          excessAmount: true,
+          totalAmount: true,
+          paidAmount: true,
+          balanceDue: true,
+          dueDate: true,
+          periodStart: true,
+          periodEnd: true,
+          notes: true,
+          createdAt: true,
+          house: {
+            select: {
+              houseCode: true,
+              property: { select: { name: true } },
+            },
+          },
+          lease: {
+            select: {
+              tenant: {
+                select: { fullName: true, primaryPhone: true },
+              },
+            },
+          },
+        },
+      }),
+      this.prisma.invoice.count({ where }),
+    ]);
+
+    return {
+      data: invoices,
+      meta: {
+        total,
+        page,
+        limit,
+        pageCount: Math.ceil(total / limit),
+        hasNextPage: page < Math.ceil(total / limit),
+        hasPreviousPage: page > 1,
+      },
     };
   }
 }

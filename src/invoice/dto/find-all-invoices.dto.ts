@@ -1,6 +1,6 @@
 // find-all-invoices.dto.ts
-import { IsOptional, IsEnum, IsString } from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsOptional, IsEnum, IsString, IsBoolean } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
 import { InvoiceStatus, InvoiceType } from '@prisma/client';
 
 export class FindAllInvoicesDto {
@@ -27,4 +27,9 @@ export class FindAllInvoicesDto {
   @Type(() => Number)
   @IsOptional()
   limit?: number = 20;
+
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }) => value === 'true' || value === true)
+  overdue?: boolean;
 }

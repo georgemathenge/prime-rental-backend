@@ -30,6 +30,7 @@ const VALID_BANKS: BankType[] = [
   BankType.EQUITY,
   BankType.KCB,
   BankType.COOPERATIVE,
+  BankType.PRIMEBANK,
 ];
 
 @Controller('payment')
