@@ -49,7 +49,12 @@ export class AuthService {
         createdAt: true,
       },
     });
-    const token = this.generateToken(user.id, user.email, user.role);
+    const token = this.generateToken(
+      user.id,
+      user.fullName,
+      user.email,
+      user.role,
+    );
 
     // await this.mailService.sendVerificationEmail(user.email, token);
 
@@ -105,7 +110,12 @@ export class AuthService {
     });
 
     // Generate JWT token
-    const token = this.generateToken(user.id, user.email, user.role);
+    const token = this.generateToken(
+      user.id,
+      user.fullName,
+      user.email,
+      user.role,
+    );
 
     // const { password: _password, ...userWithoutPassword } = user;
 
@@ -135,9 +145,15 @@ export class AuthService {
     return user;
   }
 
-  private generateToken(userId: string, email: string, role: string): string {
+  private generateToken(
+    userId: string,
+    userName: string,
+    email: string,
+    role: string,
+  ): string {
     const payload = {
       sub: userId,
+      userName,
       email,
       role,
     };
@@ -149,7 +165,7 @@ export class AuthService {
 
   async refreshToken(userId: any) {
     const user = await this.validateUser(userId);
-    return this.generateToken(user.id, user.email, user.role);
+    return this.generateToken(user.id, user.fullName, user.email, user.role);
   }
 
   // async markEmailAsVerified(userId: string, token: string) {

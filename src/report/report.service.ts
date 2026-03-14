@@ -1,9 +1,11 @@
 // reports.service.ts
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { Prisma } from '@prisma/client';
 import { FindAllInvoicesDto } from 'src/invoice/dto/find-all-invoices.dto.js';
-
+import { spawn } from 'child_process';
+import * as path from 'path';
+import * as fs from 'fs';
 @Injectable()
 export class ReportService {
   constructor(private prisma: PrismaService) {}
@@ -316,5 +318,110 @@ export class ReportService {
         hasPreviousPage: page > 1,
       },
     };
+  }
+
+  async generateRentCollectionReport(
+    propertyId: string,
+    year: number,
+  ): Promise<Buffer> {
+    console.log(propertyId);
+    const property = await this.prisma.property.findUnique({
+      where: { id: propertyId },
+      select: { id: true, name: true },
+    });
+
+    if (!property) throw new NotFoundException('Property not found.');
+
+    const houses = await this.prisma.house.findMany({
+      where: { propertyId },
+      orderBy: { houseCode: 'asc' },
+      select: {
+        id: true,
+        houseCode: true,
+        monthlyRent: true,
+        lease: {
+          where: { status: { not: 'TERMINATED' } },
+          orderBy: { startDate: 'desc' },
+          take: 1,
+          select: {
+            tenant: {
+              select: { fullName: true, primaryPhone: true },
+            },
+          },
+        },
+        payments: {
+          where: {
+            datePaid: {
+              gte: new Date(year, 0, 1),
+              lt: new Date(year + 1, 0, 1),
+            },
+          },
+          select: { amount: true, datePaid: true },
+        },
+      },
+    });
+
+    // Build monthly breakdown per house
+    const houseData = houses.map((house) => {
+      const tenant = house.lease[0]?.tenant;
+      const monthly: Record<string, number> = {};
+
+      house.payments.forEach((p) => {
+        const month = new Date(p.datePaid).getMonth();
+        monthly[String(month)] =
+          (monthly[String(month)] ?? 0) + Number(p.amount);
+      });
+
+      return {
+        houseCode: house.houseCode,
+        monthlyRent: Number(house.monthlyRent),
+        tenantName: tenant?.fullName ?? 'VACANT',
+        phone: tenant?.primaryPhone ?? '',
+        monthly,
+      };
+    });
+
+    const payload = {
+      propertyName: property.name,
+      year,
+      houses: houseData,
+    };
+
+    return this.runPythonReportGenerator(payload);
+  }
+
+  private runPythonReportGenerator(data: object): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      const scriptPath = path.resolve(
+        process.env.PYTHON_SCRIPTS_PATH ?? '../bank-python-parsers',
+        'report_generator.py',
+      );
+
+      if (!fs.existsSync(scriptPath)) {
+        reject(new Error(`Report script not found at ${scriptPath}`));
+        return;
+      }
+
+      const python = spawn(process.env.PYTHON_PATH ?? 'python3', [scriptPath]);
+
+      const chunks: Buffer[] = [];
+      const errorChunks: Buffer[] = [];
+
+      python.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
+      python.stderr.on('data', (chunk: Buffer) => errorChunks.push(chunk));
+
+      python.on('close', (code) => {
+        if (code !== 0) {
+          const error = Buffer.concat(errorChunks).toString();
+          reject(new Error(`Report generator failed: ${error}`));
+          return;
+        }
+        resolve(Buffer.concat(chunks));
+      });
+
+      // Send data to Python via stdin
+      python.stdin.write(JSON.stringify(data));
+      python.stdin.end();
+    });
   }
 }

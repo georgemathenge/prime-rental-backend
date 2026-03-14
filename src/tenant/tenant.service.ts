@@ -7,16 +7,25 @@ import {
 import { CreateTenantDto } from './dto/create-tenant.dto.js';
 import { UpdateTenantDto } from './dto/update-tenant.dto.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { Prisma } from '@prisma/client';
+import {
+  AuditAction,
+  HouseStatus,
+  InvoiceStatus,
+  Prisma,
+} from '@prisma/client';
 import * as XLSX from 'xlsx';
 import { FindAllTenantsDto } from './dto/find-tenant.dto.js';
 import { CreateKnownPayerDto } from './dto/create-known-players.dto.js';
+import { AuditService } from '../audit/audit.service.js';
 
 @Injectable()
 export class TenantService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private auditService: AuditService,
+  ) {}
 
-  async create(createTenantDto: CreateTenantDto, userId: string) {
+  async create(createTenantDto: CreateTenantDto, userId: string, ip?: string) {
     const existingTenant = await this.prisma.tenant.findUnique({
       where: { primaryPhone: createTenantDto.primaryPhone },
     });
@@ -69,6 +78,20 @@ export class TenantService {
       await tx.house.update({
         where: { id: createTenantDto.houseId },
         data: { status: 'OCCUPIED' },
+      });
+
+      // After creating tenant
+      await this.auditService.log({
+        userId,
+        action: AuditAction.TENANT_CREATED,
+        entity: 'Tenant',
+        entityId: tenant.id,
+        summary: `Created tenant ${createTenantDto.fullName} and assigned to house ${lease.house.houseCode}`,
+        meta: {
+          tenantName: createTenantDto.fullName,
+          phone: createTenantDto.primaryPhone,
+        },
+        ip,
       });
 
       return {
@@ -419,11 +442,32 @@ export class TenantService {
     };
   }
 
-  async update(id: string, updateTenantDto: UpdateTenantDto) {
+  async update(
+    id: string,
+    updateTenantDto: UpdateTenantDto,
+    ip?: string,
+    userId?: string,
+  ) {
     const updatedTenant = await this.prisma.tenant.update({
       where: { id },
       data: updateTenantDto,
+      select:{
+        fullName:true
+      }
     });
+
+    // await this.auditService.log({
+    //   userId,
+    //   action: AuditAction.TENANT_CREATED,
+    //   entity: 'Tenant',
+    //   entityId: id,
+    //   summary: `Updated tenant ${updatedTenant.fullName} with these details  ${...updateTenantDto}`,
+    //   meta: {
+    //     tenantName: createTenantDto.fullName,
+    //     phone: createTenantDto.primaryPhone,
+    //   },
+    //   ip,
+    // });
 
     if (!updatedTenant) {
       throw new NotFoundException(`Tenant with ID ${id} not found.`);
@@ -498,5 +542,76 @@ export class TenantService {
     }
 
     return this.prisma.knownPayer.delete({ where: { id } });
+  }
+
+  async terminate(leaseId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const lease = await tx.lease.findUnique({
+        where: { id: leaseId },
+        select: {
+          id: true,
+          houseId: true,
+          tenantId: true,
+          endDate: true,
+          tenant: { select: { id: true, fullName: true } },
+          house: { select: { id: true, houseCode: true } },
+        },
+      });
+
+      if (!lease) throw new NotFoundException('Lease not found.');
+      if (lease.endDate)
+        throw new BadRequestException('Lease already terminated.');
+
+      // ── Block if outstanding invoices exist ──────────────────────────
+      const outstandingInvoices = await tx.invoice.findMany({
+        where: {
+          leaseId: lease.id,
+          status: {
+            in: [
+              InvoiceStatus.UNPAID,
+              InvoiceStatus.PARTIAL,
+              InvoiceStatus.OVERDUE,
+            ],
+          },
+        },
+        select: {
+          id: true,
+          invoiceNumber: true,
+          status: true,
+          balanceDue: true,
+          dueDate: true,
+        },
+      });
+
+      if (outstandingInvoices.length > 0) {
+        const total = outstandingInvoices.reduce(
+          (sum, inv) => sum + Number(inv.balanceDue),
+          0,
+        );
+        throw new BadRequestException(
+          `Cannot move out tenant. ${outstandingInvoices.length} unpaid invoice(s) totalling KES ${total.toLocaleString()} must be cleared first.`,
+        );
+      }
+
+      // ── All clear — terminate ────────────────────────────────────────
+      await tx.lease.update({
+        where: { id: leaseId },
+        data: { endDate: new Date(), status: 'TERMINATED' },
+      });
+
+      await tx.house.update({
+        where: { id: lease.houseId },
+        data: { status: HouseStatus.AVAILABLE },
+      });
+
+      await tx.tenant.update({
+        where: { id: lease.tenantId },
+        data: { isActive: false },
+      });
+
+      return {
+        message: `${lease.tenant.fullName} has been successfully moved out of ${lease.house.houseCode}.`,
+      };
+    });
   }
 }

@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { CreateInvoiceDto, InvoiceType } from './dto/create-invoice.dto.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { Decimal } from '@prisma/client/runtime/index-browser';
@@ -338,9 +342,51 @@ export class InvoiceService {
   findOne(id: number) {
     return `This action returns a #${id} invoice`;
   }
+  async update(id: string, updateInvoiceDto: UpdateInvoiceDto) {
+    const invoice = await this.prisma.invoice.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        status: true,
+        amount: true,
+        dueDate: true,
+      },
+    });
 
-  update(id: number, updateInvoiceDto: UpdateInvoiceDto) {
-    return `This action updates a #${id} invoice`;
+    if (!invoice) {
+      throw new NotFoundException(`Invoice with ID ${id} not found.`);
+    }
+
+    if (invoice.status === 'PAID') {
+      throw new BadRequestException('Cannot update a paid invoice.');
+    }
+
+    if (invoice.status === 'CANCELLED') {
+      throw new BadRequestException('Cannot update a cancelled invoice.');
+    }
+
+    // If due date is being extended to future, revert OVERDUE back to UNPAID
+    let status = invoice.status;
+    if (updateInvoiceDto.dueDate) {
+      const newDueDate = new Date(updateInvoiceDto.dueDate);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      if (invoice.status === InvoiceStatus.OVERDUE && newDueDate > today) {
+        status = InvoiceStatus.UNPAID;
+      }
+    }
+
+    return this.prisma.invoice.update({
+      where: { id },
+      data: {
+        ...(updateInvoiceDto.amount && { amount: updateInvoiceDto.amount }),
+        ...(updateInvoiceDto.dueDate && {
+          dueDate: new Date(updateInvoiceDto.dueDate),
+        }),
+        status,
+      },
+    });
   }
 
   remove(id: string) {

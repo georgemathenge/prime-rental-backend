@@ -25,6 +25,12 @@ import { PropertyModule } from './property/property.module.js';
 import { ReportModule } from './report/report.module.js';
 import { PaymentModule } from './payment/payment.module.js';
 import { UsersModule } from './users/users.module.js';
+import { InvoiceCronModule } from './invoice-cron/invoice-cron.module.js';
+import { ScheduleModule } from '@nestjs/schedule';
+import { AuditService } from './audit/audit.service.js';
+import { AuditModule } from './audit/audit.module.js';
+import { ProfileModule } from './profile/profile.module.js';
+import { ProfileService } from './profile/profile.service.js';
 
 @Module({
   imports: [
@@ -36,6 +42,7 @@ import { UsersModule } from './users/users.module.js';
         },
       ],
     }),
+    ScheduleModule.forRoot(),
     PrismaModule,
     PassportModule,
     JwtModule.register({
@@ -55,6 +62,9 @@ import { UsersModule } from './users/users.module.js';
     ReportModule,
     PaymentModule,
     UsersModule,
+    InvoiceCronModule,
+    AuditModule,
+    ProfileModule,
   ],
   controllers: [AppController, AuthController],
   providers: [
@@ -67,6 +77,7 @@ import { UsersModule } from './users/users.module.js';
     AuthService,
     JwtStrategy,
     MailService,
+    AuditService,
   ],
 })
 export class AppModule {}

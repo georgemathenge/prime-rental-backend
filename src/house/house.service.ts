@@ -104,6 +104,7 @@ export class HouseService {
           monthlyRent: true,
           depositAmount: true,
           currentBalance: true,
+          status: true,
           createdAt: true,
           property: {
             select: {
@@ -201,6 +202,7 @@ export class HouseService {
             dueDate: true,
             periodStart: true,
             periodEnd: true,
+            createdAt: true,
           },
         },
         payments: {

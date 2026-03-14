@@ -73,7 +73,8 @@ model User {
   updatedAt   DateTime  @updatedAt
   lastLoginAt DateTime?
 
-  invoices Invoice[]
+  invoices  Invoice[]
+  auditLogs AuditLog[]
 }
 
 // --- CORE STRUCTURE ---
@@ -102,7 +103,7 @@ model House {
   lease          Lease[]
   payments       Payment[]
   arrangements   PaymentArrangement[]
-  status HouseStatus @default(AVAILABLE)
+  status         HouseStatus          @default(AVAILABLE)
   isActive       Boolean              @default(true)
   currentBalance Decimal              @default(0) @db.Decimal(12, 2)
 
@@ -135,16 +136,17 @@ model Tenant {
 }
 
 model KnownPayer {
-  id       String  @id @default(uuid())
-  phone    String  
-  name     String?
-  tenantId String
-  tenant   Tenant  @relation(fields: [tenantId], references: [id])
+  id         String  @id @default(uuid())
+  phone      String
+  name       String?
+  tenantId   String
+  tenant     Tenant  @relation(fields: [tenantId], references: [id])
   propertyId String
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-   @@unique([phone, tenantId]) 
+
+  @@unique([phone, tenantId])
 }
 
 // --- DIGITAL LEASE VAULT ---
@@ -268,4 +270,41 @@ enum InvoiceStatus {
   PAID
   OVERDUE
   CANCELLED
+}
+
+enum AuditAction {
+  // Auth
+  USER_LOGIN
+  USER_LOGIN_FAILED
+  // Users
+  USER_CREATED
+  USER_UPDATED
+  USER_ROLE_CHANGED
+  // Houses
+  HOUSE_CREATED
+  HOUSE_UPDATED
+  // Tenants
+  TENANT_CREATED
+  TENANT_UPDATED
+  TENANT_MOVED_OUT
+  // Invoices
+  INVOICE_CREATED
+  INVOICE_UPDATED
+  INVOICE_CANCELLED
+  // Payments
+  BANK_STATEMENT_UPLOADED
+  PAYMENT_MANUALLY_ASSIGNED
+}
+
+model AuditLog {
+  id        String      @id @default(uuid())
+  userId    String
+  user      User        @relation(fields: [userId], references: [id])
+  action    AuditAction
+  entity    String
+  entityId  String?
+  summary   String // human readable e.g. "Created invoice INV-2026-0023 for house A1"
+  meta      Json? // extra context e.g. { before: {}, after: {} }
+  ip        String?
+  createdAt DateTime    @default(now())
 }

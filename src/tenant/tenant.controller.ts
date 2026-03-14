@@ -14,6 +14,8 @@ import {
   BadRequestException,
   Query,
   UseGuards,
+  Put,
+  Req,
 } from '@nestjs/common';
 import { TenantService } from './tenant.service.js';
 import { CreateTenantDto } from './dto/create-tenant.dto.js';
@@ -23,7 +25,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { FindAllTenantsDto } from './dto/find-tenant.dto.js';
 import { CreateKnownPayerDto } from './dto/create-known-players.dto.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
-import { property } from 'lodash';
+import type { Request } from 'express';
 
 @Controller('tenant')
 export class TenantController {
@@ -34,8 +36,11 @@ export class TenantController {
   create(
     @Body() createTenantDto: CreateTenantDto,
     @CurrentUser() user: { id: string },
+    @Req() req: Request,
   ) {
-    return this.tenantService.create(createTenantDto, user.id);
+    const ip = req.ip ?? (req.headers['x-forwarded-for'] as string);
+
+    return this.tenantService.create(createTenantDto, user.id, ip);
   }
 
   @Post(':propertyId/upload')
@@ -75,8 +80,15 @@ export class TenantController {
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() updateTenantDto: UpdateTenantDto) {
-    return this.tenantService.update(id, updateTenantDto);
+  update(
+    @Param('id') id: string,
+    @Body() updateTenantDto: UpdateTenantDto,
+    @Req() req: Request,
+    @CurrentUser() user: { id: string },
+  ) {
+    const ip = req.ip ?? (req.headers['x-forwarded-for'] as string);
+
+    return this.tenantService.update(id, updateTenantDto, ip, user.id);
   }
 
   @Delete(':id')
@@ -101,5 +113,10 @@ export class TenantController {
   @Delete('known-payers/:id')
   removeKnownPayer(@Param('id') id: string) {
     return this.tenantService.removeKnownPayer(id);
+  }
+  @Put(':id/terminate')
+  @UseGuards(JwtAuthGuard)
+  terminate(@Param('id') id: string) {
+    return this.tenantService.terminate(id);
   }
 }
